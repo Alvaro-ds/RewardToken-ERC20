@@ -1,12 +1,12 @@
-# RewardToken (ERC-20 with Fee-Based Reward Distribution)
+# RewardToken (ERC-20 with Fee-Based Claim System)
 
 ## Overview
 
-**RewardToken** is an ERC-20 compliant smart contract that introduces a simple and transparent reward distribution mechanism based on transaction fees.
+**RewardToken** is an ERC-20 compliant smart contract that implements a reward mechanism based on transaction fees using a **pull-based claim model with whitelist control**.
 
-Each token transfer applies a configurable fee that is accumulated within the contract. These collected tokens can later be distributed proportionally among holders by the contract owner.
+Each token transfer applies a configurable fee that is accumulated within the contract. Instead of distributing rewards in batch, eligible users are added to a whitelist and can individually claim a fixed reward from the contract.
 
-This project is designed as a learning-oriented implementation that demonstrates how to extend standard ERC-20 functionality using OpenZeppelin and internal hooks.
+This project demonstrates how to extend the ERC-20 standard using OpenZeppelin while applying secure and scalable design patterns such as **pull over push**.
 
 ---
 
@@ -15,23 +15,38 @@ This project is designed as a learning-oriented implementation that demonstrates
 ### Fee on Transfers
 
 * Every standard token transfer applies a percentage-based fee.
-* The fee is automatically redirected to the contract itself.
+* The fee is automatically redirected to the contract.
 * The recipient receives the net amount after fee deduction.
+
+---
 
 ### Reward Pool Accumulation
 
 * All collected fees are stored in the contract balance.
-* This balance acts as a reward pool for token holders.
+* This balance acts as a reward pool from which users can claim rewards.
 
-### Manual Reward Distribution
+---
 
-* The owner can distribute accumulated rewards to a list of holders.
-* Distribution is proportional to each holder’s token balance.
+### Pull-Based Reward Claim
+
+* Users do not receive rewards automatically.
+* Instead, they must call a `claim()` function.
+* Each user can claim only once.
+
+---
+
+### Whitelist Control
+
+* Only addresses explicitly approved by the owner can claim rewards.
+* This ensures controlled and secure distribution.
+
+---
 
 ### Owner-Controlled Parameters
 
-* Ability to update the fee percentage (with a capped limit).
-* Restricted access to reward distribution and configuration functions.
+* Ability to update the fee percentage (capped).
+* Ability to update the reward amount.
+* Ability to manage the whitelist.
 
 ---
 
@@ -43,7 +58,7 @@ The contract extends OpenZeppelin’s `ERC20` implementation and overrides the i
 
 * **ERC-20 Standard (OpenZeppelin)**
 * **Custom Fee Logic via `_update` override**
-* **Reward Distribution Function**
+* **Whitelist-based Claim System**
 * **Owner Access Control**
 
 ---
@@ -54,7 +69,7 @@ The contract extends OpenZeppelin’s `ERC20` implementation and overrides the i
 
 When a user transfers tokens:
 
-* A percentage (`feePercent`) is calculated from the transfer amount.
+* A percentage (`feePercent`) is taken as a fee.
 * The fee is sent to the contract.
 * The remaining tokens are sent to the recipient.
 
@@ -66,40 +81,52 @@ When a user transfers tokens:
 
 ---
 
-### 2. Reward Accumulation
+### 2. Reward Pool Accumulation
 
-* All fees are stored in the contract’s own balance.
-* This creates a pool of tokens available for redistribution.
+* Fees collected from transfers accumulate in the contract.
+* This pool is used to fund user rewards.
 
 ---
 
-### 3. Reward Distribution
+### 3. Whitelisting
 
-The owner can call:
+The owner adds eligible users:
 
 ```
-distributeRewards(address[] holders)
+addToWhitelist(address user)
 ```
 
-Process:
+Only whitelisted users can claim rewards.
 
-1. The contract balance is captured (snapshot).
-2. Total tokens held by provided addresses are calculated.
-3. Each holder receives a proportional share:
+---
 
-[
-reward = \frac{contractBalance \times holderBalance}{totalHeld}
-]
+### 4. Claim Process (Pull Pattern)
 
-4. Tokens are transferred from the contract to each holder.
+Users claim rewards manually:
+
+```
+claim()
+```
+
+Requirements:
+
+* User must be whitelisted
+* User must not have claimed before
+* Contract must have enough tokens in the pool
+
+If all conditions are met:
+
+* The user receives `rewardAmount`
+* The claim is marked as completed
 
 ---
 
 ## Functions
 
-### `constructor(string name_, string symbol_)`
+### `constructor(string name_, string symbol_, uint256 rewardAmount_)`
 
 * Initializes the token.
+* Sets the reward amount.
 * Mints initial supply to the deployer.
 
 ---
@@ -108,14 +135,22 @@ reward = \frac{contractBalance \times holderBalance}{totalHeld}
 
 * Overrides OpenZeppelin internal transfer logic.
 * Applies fee on standard transfers.
-* Handles minting and burning without fees.
+* Excludes minting and burning from fees.
 
 ---
 
-### `distributeRewards(address[] holders_)`
+### `addToWhitelist(address user_)`
 
-* Distributes accumulated fees to holders.
+* Adds a user to the whitelist.
 * Only callable by the owner.
+
+---
+
+### `claim()`
+
+* Allows a whitelisted user to claim their reward.
+* Uses pull pattern (user-initiated transaction).
+* Prevents double claims.
 
 ---
 
@@ -126,46 +161,68 @@ reward = \frac{contractBalance \times holderBalance}{totalHeld}
 
 ---
 
+### `setRewardAmount(uint256 newRewardAmount_)`
+
+* Updates the reward amount.
+* Only callable by the owner.
+
+---
+
 ## Design Decisions
 
 ### Use of `_update`
 
-The contract leverages OpenZeppelin v5’s `_update` hook, which centralizes all token state changes. This ensures:
+The contract leverages OpenZeppelin v5’s `_update` hook, ensuring:
 
-* Compatibility with ERC-20 standard
-* Consistent behavior across `transfer` and `transferFrom`
-* Clean integration of custom logic
+* Full compatibility with ERC-20
+* Consistent behavior across all transfers
+* Centralized control of token movement logic
 
 ---
 
-### Manual Distribution Model
+### Pull over Push Model
 
-Rewards are distributed manually to avoid:
+The contract uses a **pull-based reward system** instead of batch distribution:
 
-* High gas costs from automatic distribution
-* Complexity of reflection mechanisms
+* Eliminates gas issues from loops
+* Prevents denial-of-service scenarios
+* Ensures scalability regardless of number of users
+
+---
+
+### Fixed Reward Model
+
+Each user receives a fixed reward (`rewardAmount`) instead of a proportional distribution.
 
 ---
 
 ## Limitations
 
-### Gas Scalability
+### Fixed Reward (Not Proportional)
 
-* Distribution relies on loops over holder arrays.
-* Large lists may exceed gas limits.
+* Rewards are not based on token holdings.
+* All users receive the same amount.
 
-### Off-Chain Dependency
+---
 
-* The contract does not track holders internally.
-* The owner must supply holder addresses manually.
+### Dependency on Contract Balance
 
-### Precision Loss
+* Claims will fail if the contract does not have enough tokens.
+* The reward pool depends entirely on collected fees or manual funding.
 
-* Integer division may result in leftover tokens (“dust”) in the contract.
+---
 
-### Timing Exploits
+### Manual Whitelisting
 
-* Users can acquire tokens shortly before distribution to receive rewards.
+* The owner must explicitly add users.
+* No automatic eligibility detection.
+
+---
+
+### No Partial Distribution
+
+* If the pool is insufficient, claims revert.
+* No fallback or partial payouts.
 
 ---
 
@@ -173,39 +230,44 @@ Rewards are distributed manually to avoid:
 
 * Only the owner can:
 
-  * Distribute rewards
-  * Modify the fee
-* Fee is capped to prevent abusive configurations.
-* Minting occurs only at deployment.
+  * Manage whitelist
+  * Modify fee
+  * Modify reward amount
+* Double claim prevention via `claimed` mapping
+* Fee is capped to prevent abusive configurations
+* Claim requires sufficient contract balance
 
 ---
 
 ## Possible Improvements
 
-* Exclude specific addresses from fees or rewards
-* Add events for transparency (e.g., `RewardsDistributed`)
-* Introduce minimum balance threshold for rewards
-* Implement cooldown between distributions
-* Move toward a reflection-based model (no loops)
+* Batch whitelist addition
+* Event emission for transparency (`Claimed`, `Whitelisted`)
+* Minimum pool threshold before enabling claims
+* Time-based claim windows
+* Dynamic reward calculation
+* Transition to proportional or staking-based rewards
 
 ---
 
 ## Use Cases
 
-* Educational demonstration of ERC-20 extensibility
-* Prototype for fee-based tokenomics
-* Foundation for DeFi-style reward systems
+* Controlled token airdrops
+* Incentive campaigns
+* Educational demonstration of pull-based reward systems
+* Secure alternative to batch token distribution
 
 ---
 
 ## Conclusion
 
-RewardToken is a clean and modular extension of the ERC-20 standard that demonstrates how to:
+RewardToken demonstrates how to extend the ERC-20 standard with:
 
-* Modify token transfer behavior
-* Accumulate and redistribute value
-* Implement controlled economic logic
+* Custom fee mechanics
+* Internal reward accumulation
+* Secure and scalable pull-based distribution
+* Whitelist-controlled access
 
-It provides a solid foundation for understanding more advanced token designs used in decentralized finance.
+It provides a solid foundation for understanding real-world smart contract design patterns used in modern blockchain systems.
 
 ---
