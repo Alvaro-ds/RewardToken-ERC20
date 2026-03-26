@@ -7,10 +7,14 @@ contract RewardToken is ERC20{
 
     address public owner;
     uint256 public feePercent = 2;
+    uint256 public rewardAmount;
 
+    mapping(address => bool) public whiteListed;
+    mapping(address => bool) public claimed;
 
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_){
+    constructor(string memory name_, string memory symbol_, uint256 rewardAmount_) ERC20(name_, symbol_){
         owner = msg.sender;
+        rewardAmount = rewardAmount_;
         _mint(msg.sender, 1000 * 1e18);
     }
 
@@ -32,40 +36,40 @@ contract RewardToken is ERC20{
 
     }
 
-
-    function distributeRewards(address[] calldata holders_) external {
+    // Owner adds users to the white list
+    function addToWhitelist(address user_) external{
 
         require(msg.sender == owner, "Not owner");
-
-        uint256 contractBalance = balanceOf(address(this));
-        require(contractBalance > 0, "No balance");
-
-        uint256 holdersTokens = 0;
-
-        for (uint256 i = 0; i < holders_.length; i++) {
-            holdersTokens += balanceOf(holders_[i]);
-        }
-
-        require(holdersTokens > 0, "No holders");
-
-        for (uint256 i = 0; i < holders_.length; i++) {
-            uint256 holderBalance = balanceOf(holders_[i]);
-            
-            if (holderBalance > 0){
-                uint256 reward = (contractBalance * holderBalance) / holdersTokens;
-
-                super._update(address(this), holders_[i], reward);
-            }
-        }
+        whiteListed[user_] = true;
     }
 
+    // User claims reward thanks to pull pattern
+    function claim() external {
 
+        require(whiteListed[msg.sender], "Not in the white list");
+        require(!claimed[msg.sender], "Already claimed");
+
+        require(balanceOf(address(this)) >= rewardAmount, "Insuficient amount at pool");
+
+        claimed[msg.sender] = true;
+
+        super._update(address(this), msg.sender, rewardAmount);
+    }
+
+    // Owner can set a new fee percent
     function setFee(uint256 newFeePercent_) external {
 
         require(msg.sender == owner, "Not owner");
         require(newFeePercent_ <= 10, "Too high fee");
 
         feePercent = newFeePercent_;
+    }
+
+    // Owner can set a new reward amount
+    function setRewardAmount(uint256 newRewardAmount_) external {
+        require(msg.sender == owner, "Not owner");
+
+        rewardAmount = newRewardAmount_;
     }
 
 }
